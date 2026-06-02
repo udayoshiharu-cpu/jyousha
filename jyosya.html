@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>救急隊 乗車割スケジュール</title>
 <style>
-    /* CSSは前回と全く同じです */
     :root {
         --bg-color: #F5F3F0;
         --card-bg: #FFFFFF;
@@ -35,18 +34,30 @@
         box-shadow: 0 2px 10px rgba(0,0,0,0.03);
     }
     h1 { font-size: 1rem; margin: 5px 0; text-align: center; }
+    
+    /* 修正: 最初は非表示にしておく */
     .stats-section {
-        display: grid;
+        display: none; 
         grid-template-columns: 1fr 1fr;
         gap: 10px;
         margin-top: 10px;
     }
+    
     .stat-box { background-color: #FDFDFD; border: 1px solid var(--border-color); border-radius: 8px; padding: 8px; }
     .stat-title { font-size: 0.7rem; color: var(--text-sub); text-align: center; margin-bottom: 5px; font-weight: bold; }
     .totals-container { display: flex; justify-content: space-around; }
     .total-item { text-align: center; font-size: 0.85rem; font-weight: bold; }
     .total-item span { display: block; font-size: 0.65rem; color: var(--text-sub); font-weight: normal; }
     .current-stat { color: var(--accent-color); }
+    
+    /* ローディング画面のスタイル */
+    #loading-screen {
+        text-align: center;
+        padding: 50px 20px;
+        color: var(--text-sub);
+        font-size: 0.9rem;
+    }
+
     #schedule-list { padding: 15px; max-width: 600px; margin: 0 auto; }
     .day-card {
         background-color: var(--card-bg); border-radius: 12px; padding: 15px; margin-bottom: 15px;
@@ -65,7 +76,13 @@
     .member-btn.ride { background-color: var(--color-ride); color: white; }
     .member-btn.off { background-color: var(--color-off); color: var(--text-sub); }
     .locked-btn { cursor: default; }
-    .system-controls { text-align: center; margin-top: 30px; }
+    
+    /* 修正: 最初は非表示にしておく */
+    .system-controls { 
+        display: none;
+        text-align: center; 
+        margin-top: 30px; 
+    }
     .clear-data-btn { background-color: transparent; color: var(--text-sub); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 20px; font-size: 0.8rem; cursor: pointer; }
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-app-compat.js"></script>
@@ -75,7 +92,7 @@
 
 <header>
     <h1>🚑 救急乗車割状況</h1>
-    <div class="stats-section">
+    <div class="stats-section" id="stats-section">
         <div class="stat-box">
             <div class="stat-title">今日までの累計 (進捗)</div>
             <div class="totals-container" id="current-totals"></div>
@@ -87,9 +104,11 @@
     </div>
 </header>
 
+<div id="loading-screen">⏳ データを読み込んでいます...</div>
+
 <div id="schedule-list"></div>
 
-<div class="system-controls">
+<div class="system-controls" id="system-controls">
     <button class="clear-data-btn" onclick="clearAllData()">データを全リセット</button>
 </div>
 
@@ -107,7 +126,7 @@
 
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
-    const dbRef = db.ref('scheduleData'); // データベース内の保存場所
+    const dbRef = db.ref('scheduleData');
 
     const MEMBERS = [
         { id: 'fujimori', name: '藤森', tieBreaker: 2 },
@@ -173,7 +192,6 @@
         }
     }
 
-    // 【修正・改善箇所】スケジュール計算と描画の処理
     function recalculateAndRender() {
         let finalCounts = { fujimori: 0, nakazaki: 0, uda: 0, niwa: 0 };
         let currentCounts = { fujimori: 0, nakazaki: 0, uda: 0, niwa: 0 };
@@ -181,15 +199,13 @@
         const nowForCount = new Date();
         nowForCount.setHours(23, 59, 59, 999);
 
-        // 過去判定用の「今日の0時」を取得
         const todayForCalc = new Date();
         todayForCalc.setHours(0, 0, 0, 0);
         const todayTimeCalc = todayForCalc.getTime();
 
         scheduleData.forEach((day) => {
-            const isPastDay = day.dateTimestamp < todayTimeCalc; // 過去の日かどうか判定
+            const isPastDay = day.dateTimestamp < todayTimeCalc;
 
-            // 「手動変更されていない」かつ「過去ではない（今日以降）」場合のみ自動調整を行う
             if (!day.isManual && !isPastDay) {
                 let candidates = [...MEMBERS].sort((a, b) => {
                     if (finalCounts[b.id] !== finalCounts[a.id]) {
@@ -201,7 +217,6 @@
                 MEMBERS.forEach(m => { day.riders[m.id] = (m.id !== memberToOff); });
             }
 
-            // 実際の乗車状況に応じてカウントを加算（過去・未来すべての合計を反映）
             MEMBERS.forEach(m => {
                 if (day.riders[m.id]) {
                     finalCounts[m.id]++;
@@ -273,6 +288,11 @@
                 </div>
             `;
         }).join('');
+
+        // データの描画が終わったら、ローディングを消して各要素を表示する
+        document.getElementById('loading-screen').style.display = 'none';
+        document.getElementById('stats-section').style.display = 'grid';
+        document.getElementById('system-controls').style.display = 'block';
     }
 
     function scrollToToday() {
@@ -303,13 +323,10 @@
         return false;
     }
 
-    // 乗車・休み切り替え時の処理
     function toggleRider(dayIndex, memberId) {
         if (!checkPermission(scheduleData[dayIndex].dateTimestamp)) return;
 
         scheduleData[dayIndex].riders[memberId] = !scheduleData[dayIndex].riders[memberId];
-        
-        // 過去の日であっても未来の日であっても、手動で変更されたら一律で手動フラグを立てる
         scheduleData[dayIndex].isManual = true;
         
         dbRef.set(scheduleData);
