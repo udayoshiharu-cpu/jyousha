@@ -94,24 +94,23 @@
 </div>
 
 <script>
-    const firebaseConfig = {
+    /* ========================================================= */
+    /* === ここにコピーした firebaseConfig を貼り付ける === */
+    /* ========================================================= */
+   
+
+    // Firebaseの初期化
+        const firebaseConfig = {
       apiKey: "AIzaSyCpk4mdSP-XkVP8utmXuelQgl6vN_HTMno",
       authDomain: "rescueschedule-7ebce.firebaseapp.com",
-      databaseURL: "https://rescueschedule-7ebce-default-rtdb.firebaseio.com/", // ←★ここを追加！
+      databaseURL: "https://rescueschedule-7ebce-default-rtdb.firebaseio.com",
       projectId: "rescueschedule-7ebce",
       storageBucket: "rescueschedule-7ebce.firebasestorage.app",
       messagingSenderId: "381404011414",
       appId: "1:381404011414:web:f623bafbfc92248974dbb7"
     };
-    const firebaseConfig = {
-        // 例: apiKey: "AIzaSyB...",
-        // projectId: "rescueschedule-xxx",
-        // databaseURL: "https://rescueschedule-xxx.firebaseio.com",
-        // など、取得した内容をここに上書きしてください
-    };
 
-    // Firebaseの初期化
-    firebase.initializeApp(firebaseConfig);
+firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
     const dbRef = db.ref('scheduleData'); // データベース内の保存場所
 
