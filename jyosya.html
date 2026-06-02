@@ -94,13 +94,8 @@
 </div>
 
 <script>
-    /* ========================================================= */
-    /* === ここにコピーした firebaseConfig を貼り付ける === */
-    /* ========================================================= */
-   
-
     // Firebaseの初期化
-        const firebaseConfig = {
+    const firebaseConfig = {
       apiKey: "AIzaSyCpk4mdSP-XkVP8utmXuelQgl6vN_HTMno",
       authDomain: "rescueschedule-7ebce.firebaseapp.com",
       databaseURL: "https://rescueschedule-7ebce-default-rtdb.firebaseio.com",
@@ -110,7 +105,7 @@
       appId: "1:381404011414:web:f623bafbfc92248974dbb7"
     };
 
-firebase.initializeApp(firebaseConfig);
+    firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
     const dbRef = db.ref('scheduleData'); // データベース内の保存場所
 
@@ -132,22 +127,20 @@ firebase.initializeApp(firebaseConfig);
 
     // 初期化：Firebaseからデータを読み込む
     function init() {
-        // データベースの値が変更されるたびに自動で呼ばれる（リアルタイム同期の心臓部）
         dbRef.on('value', (snapshot) => {
             const data = snapshot.val();
             
             if (data) {
-                scheduleData = data; // ネット上のデータをローカルに適用
+                scheduleData = data;
             } else {
-                // Firebase上にデータがない（初回）場合は作成して保存
                 scheduleData = [];
                 generateBaseDates();
                 setInitialManualDays();
-                dbRef.set(scheduleData); // 保存すると再度この関数が呼ばれるのでリターン
+                dbRef.set(scheduleData);
                 return;
             }
             
-            recalculateAndRender(); // 画面を更新
+            recalculateAndRender();
             
             if (isFirstLoad) {
                 scrollToToday();
@@ -180,14 +173,24 @@ firebase.initializeApp(firebaseConfig);
         }
     }
 
+    // 【修正・改善箇所】スケジュール計算と描画の処理
     function recalculateAndRender() {
         let finalCounts = { fujimori: 0, nakazaki: 0, uda: 0, niwa: 0 };
         let currentCounts = { fujimori: 0, nakazaki: 0, uda: 0, niwa: 0 };
-        const now = new Date();
-        now.setHours(23, 59, 59, 999);
+        
+        const nowForCount = new Date();
+        nowForCount.setHours(23, 59, 59, 999);
+
+        // 過去判定用の「今日の0時」を取得
+        const todayForCalc = new Date();
+        todayForCalc.setHours(0, 0, 0, 0);
+        const todayTimeCalc = todayForCalc.getTime();
 
         scheduleData.forEach((day) => {
-            if (!day.isManual) {
+            const isPastDay = day.dateTimestamp < todayTimeCalc; // 過去の日かどうか判定
+
+            // 「手動変更されていない」かつ「過去ではない（今日以降）」場合のみ自動調整を行う
+            if (!day.isManual && !isPastDay) {
                 let candidates = [...MEMBERS].sort((a, b) => {
                     if (finalCounts[b.id] !== finalCounts[a.id]) {
                         return finalCounts[b.id] - finalCounts[a.id];
@@ -198,10 +201,11 @@ firebase.initializeApp(firebaseConfig);
                 MEMBERS.forEach(m => { day.riders[m.id] = (m.id !== memberToOff); });
             }
 
+            // 実際の乗車状況に応じてカウントを加算（過去・未来すべての合計を反映）
             MEMBERS.forEach(m => {
                 if (day.riders[m.id]) {
                     finalCounts[m.id]++;
-                    if (day.dateTimestamp <= now.getTime()) {
+                    if (day.dateTimestamp <= nowForCount.getTime()) {
                         currentCounts[m.id]++;
                     }
                 }
@@ -299,13 +303,15 @@ firebase.initializeApp(firebaseConfig);
         return false;
     }
 
+    // 乗車・休み切り替え時の処理
     function toggleRider(dayIndex, memberId) {
         if (!checkPermission(scheduleData[dayIndex].dateTimestamp)) return;
 
         scheduleData[dayIndex].riders[memberId] = !scheduleData[dayIndex].riders[memberId];
+        
+        // 過去の日であっても未来の日であっても、手動で変更されたら一律で手動フラグを立てる
         scheduleData[dayIndex].isManual = true;
         
-        // 変更をFirebaseに送信する（全員の画面が自動で切り替わる）
         dbRef.set(scheduleData);
     }
 
@@ -318,7 +324,7 @@ firebase.initializeApp(firebaseConfig);
 
     function clearAllData() {
         if(confirm("全データを消去します。全員の画面からもデータが消えます。よろしいですか？")) {
-            dbRef.remove(); // データベースのデータを削除（初期化されます）
+            dbRef.remove();
         }
     }
 
