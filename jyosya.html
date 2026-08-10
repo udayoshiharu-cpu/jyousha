@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>救急隊 乗車割スケジュール</title>
+<title>救急隊・警防隊 乗車割スケジュール</title>
 <style>
     :root {
         --bg-color: #F5F3F0;
@@ -35,7 +35,6 @@
     }
     h1 { font-size: 1rem; margin: 5px 0; text-align: center; }
     
-    /* 修正: 最初は非表示にしておく */
     .stats-section {
         display: none; 
         grid-template-columns: 1fr 1fr;
@@ -46,11 +45,18 @@
     .stat-box { background-color: #FDFDFD; border: 1px solid var(--border-color); border-radius: 8px; padding: 8px; }
     .stat-title { font-size: 0.7rem; color: var(--text-sub); text-align: center; margin-bottom: 5px; font-weight: bold; }
     .totals-container { display: flex; justify-content: space-around; }
+    
+    /* 警防隊用の集計行（点線で区切る） */
+    .keibo-totals {
+        margin-top: 6px;
+        padding-top: 6px;
+        border-top: 1px dashed #E0DCD3;
+    }
+
     .total-item { text-align: center; font-size: 0.85rem; font-weight: bold; }
     .total-item span { display: block; font-size: 0.65rem; color: var(--text-sub); font-weight: normal; }
     .current-stat { color: var(--accent-color); }
     
-    /* ローディング画面のスタイル */
     #loading-screen {
         text-align: center;
         padding: 50px 20px;
@@ -71,13 +77,35 @@
     .status-badge { font-size: 0.7rem; padding: 3px 6px; border-radius: 4px; background-color: var(--bg-color); color: var(--text-sub); }
     .status-badge.manual { background-color: #FFF3CD; color: #856404; }
     .reset-btn { font-size: 0.7rem; background-color: var(--color-reset); color: white; border: none; padding: 3px 8px; border-radius: 4px; cursor: pointer; margin-left: 5px; }
+    
+    /* 警防隊プルダウンのスタイル */
+    .keibo-section {
+        background-color: #FBFBFB;
+        border: 1px solid #EAEAEA;
+        border-radius: 6px;
+        padding: 8px 12px;
+        margin-bottom: 12px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .keibo-label { font-size: 0.85rem; color: var(--text-main); font-weight: bold; }
+    .keibo-select {
+        padding: 4px 8px;
+        border-radius: 4px;
+        border: 1px solid #CCC;
+        background-color: #FFF;
+        font-size: 0.9rem;
+        color: var(--text-main);
+    }
+    .keibo-select:disabled { background-color: #EEE; color: #999; }
+
     .buttons-container { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
     .member-btn { padding: 10px 0; border: none; border-radius: 8px; font-size: 0.9rem; font-weight: bold; cursor: pointer; text-align: center; }
     .member-btn.ride { background-color: var(--color-ride); color: white; }
     .member-btn.off { background-color: var(--color-off); color: var(--text-sub); }
     .locked-btn { cursor: default; }
     
-    /* 修正: 最初は非表示にしておく */
     .system-controls { 
         display: none;
         text-align: center; 
@@ -95,11 +123,13 @@
     <div class="stats-section" id="stats-section">
         <div class="stat-box">
             <div class="stat-title">今日までの累計 (進捗)</div>
-            <div class="totals-container" id="current-totals"></div>
+            <div class="totals-container" id="current-totals-ems"></div>
+            <div class="totals-container keibo-totals" id="current-totals-keibo"></div>
         </div>
         <div class="stat-box">
             <div class="stat-title">年度末の着地予測</div>
-            <div class="totals-container" id="final-totals"></div>
+            <div class="totals-container" id="final-totals-ems"></div>
+            <div class="totals-container keibo-totals" id="final-totals-keibo"></div>
         </div>
     </div>
 </header>
@@ -135,6 +165,12 @@
         { id: 'niwa', name: '丹羽', tieBreaker: 3 }
     ];
 
+    const KEIBO_MEMBERS = [
+        { id: 'nishibayashi', name: '西林' },
+        { id: 'ozaki', name: '尾崎' },
+        { id: 'suzuki', name: '鈴木' }
+    ];
+
     const START_DATE = new Date(2026, 2, 31);
     const END_DATE = new Date(2027, 2, 29);
     const DAYS_STR = ['日', '月', '火', '水', '木', '金', '土'];
@@ -144,13 +180,16 @@
     let isFirstLoad = true; 
     let isUnlocked = false;
 
-    // 初期化：Firebaseからデータを読み込む
     function init() {
         dbRef.on('value', (snapshot) => {
             const data = snapshot.val();
             
             if (data) {
                 scheduleData = data;
+                // 既存データに警防隊枠(keiboRider)が無い場合のための補完
+                scheduleData.forEach(day => {
+                    if (day.keiboRider === undefined) day.keiboRider = "";
+                });
             } else {
                 scheduleData = [];
                 generateBaseDates();
@@ -175,7 +214,8 @@
                 dateTimestamp: current.getTime(),
                 dateStr: `${current.getMonth() + 1}/${current.getDate()}(${DAYS_STR[current.getDay()]})`,
                 isManual: false,
-                riders: { fujimori: true, nakazaki: true, uda: true, niwa: true }
+                riders: { fujimori: true, nakazaki: true, uda: true, niwa: true },
+                keiboRider: "" 
             });
             current.setDate(current.getDate() + 3);
         }
@@ -193,8 +233,11 @@
     }
 
     function recalculateAndRender() {
-        let finalCounts = { fujimori: 0, nakazaki: 0, uda: 0, niwa: 0 };
-        let currentCounts = { fujimori: 0, nakazaki: 0, uda: 0, niwa: 0 };
+        let finalCountsEms = { fujimori: 0, nakazaki: 0, uda: 0, niwa: 0 };
+        let currentCountsEms = { fujimori: 0, nakazaki: 0, uda: 0, niwa: 0 };
+        
+        let finalCountsKeibo = { nishibayashi: 0, ozaki: 0, suzuki: 0 };
+        let currentCountsKeibo = { nishibayashi: 0, ozaki: 0, suzuki: 0 };
         
         const nowForCount = new Date();
         nowForCount.setHours(23, 59, 59, 999);
@@ -206,10 +249,11 @@
         scheduleData.forEach((day) => {
             const isPastDay = day.dateTimestamp < todayTimeCalc;
 
+            // 救急隊の自動計算
             if (!day.isManual && !isPastDay) {
                 let candidates = [...MEMBERS].sort((a, b) => {
-                    if (finalCounts[b.id] !== finalCounts[a.id]) {
-                        return finalCounts[b.id] - finalCounts[a.id];
+                    if (finalCountsEms[b.id] !== finalCountsEms[a.id]) {
+                        return finalCountsEms[b.id] - finalCountsEms[a.id];
                     }
                     return a.tieBreaker - b.tieBreaker;
                 });
@@ -217,26 +261,45 @@
                 MEMBERS.forEach(m => { day.riders[m.id] = (m.id !== memberToOff); });
             }
 
+            // 救急隊のカウント
             MEMBERS.forEach(m => {
                 if (day.riders[m.id]) {
-                    finalCounts[m.id]++;
+                    finalCountsEms[m.id]++;
                     if (day.dateTimestamp <= nowForCount.getTime()) {
-                        currentCounts[m.id]++;
+                        currentCountsEms[m.id]++;
                     }
                 }
             });
+
+            // 警防隊のカウント
+            if (day.keiboRider && finalCountsKeibo[day.keiboRider] !== undefined) {
+                finalCountsKeibo[day.keiboRider]++;
+                if (day.dateTimestamp <= nowForCount.getTime()) {
+                    currentCountsKeibo[day.keiboRider]++;
+                }
+            }
         });
 
-        renderUI(currentCounts, finalCounts);
+        renderUI(currentCountsEms, finalCountsEms, currentCountsKeibo, finalCountsKeibo);
     }
 
-    function renderUI(currentCounts, finalCounts) {
-        document.getElementById('current-totals').innerHTML = MEMBERS.map(m => `
-            <div class="total-item current-stat"><span>${m.name}</span>${currentCounts[m.id]}</div>
+    function renderUI(currentCountsEms, finalCountsEms, currentCountsKeibo, finalCountsKeibo) {
+        // 救急隊の集計描画
+        document.getElementById('current-totals-ems').innerHTML = MEMBERS.map(m => `
+            <div class="total-item current-stat"><span>${m.name}</span>${currentCountsEms[m.id]}</div>
         `).join('');
 
-        document.getElementById('final-totals').innerHTML = MEMBERS.map(m => `
-            <div class="total-item"><span>${m.name}</span>${finalCounts[m.id]}</div>
+        document.getElementById('final-totals-ems').innerHTML = MEMBERS.map(m => `
+            <div class="total-item"><span>${m.name}</span>${finalCountsEms[m.id]}</div>
+        `).join('');
+
+        // 警防隊の集計描画
+        document.getElementById('current-totals-keibo').innerHTML = KEIBO_MEMBERS.map(m => `
+            <div class="total-item current-stat"><span>${m.name}</span>${currentCountsKeibo[m.id]}</div>
+        `).join('');
+
+        document.getElementById('final-totals-keibo').innerHTML = KEIBO_MEMBERS.map(m => `
+            <div class="total-item"><span>${m.name}</span>${finalCountsKeibo[m.id]}</div>
         `).join('');
 
         const listDiv = document.getElementById('schedule-list');
@@ -266,12 +329,26 @@
                 foundNext = true;
             }
 
-            const buttonsHtml = MEMBERS.map(m => `
+            const emsButtonsHtml = MEMBERS.map(m => `
                 <button class="member-btn ${day.riders[m.id] ? 'ride' : 'off'} ${isPast && !isUnlocked ? 'locked-btn' : ''}" 
                         onclick="toggleRider(${index}, '${m.id}')">
                     ${m.name}<br><small>${day.riders[m.id] ? '乗車' : '休'}</small>
                 </button>
             `).join('');
+
+            // 警防隊のプルダウン生成
+            const keiboOptionsHtml = `<option value="">--空欄(乗車なし)--</option>` + KEIBO_MEMBERS.map(m => `
+                <option value="${m.id}" ${day.keiboRider === m.id ? 'selected' : ''}>${m.name}</option>
+            `).join('');
+
+            const keiboSectionHtml = `
+                <div class="keibo-section">
+                    <span class="keibo-label">🚑 警防隊 応援:</span>
+                    <select class="keibo-select" onchange="changeKeibo(${index}, this.value)" ${isPast && !isUnlocked ? 'disabled' : ''}>
+                        ${keiboOptionsHtml}
+                    </select>
+                </div>
+            `;
 
             return `
                 <div class="${dayClass}" ${idAttr}>
@@ -284,12 +361,12 @@
                             ${day.isManual ? `<button class="reset-btn" onclick="resetDay(${index})">戻す</button>` : ''}
                         </div>
                     </div>
-                    <div class="buttons-container">${buttonsHtml}</div>
+                    ${keiboSectionHtml}
+                    <div class="buttons-container">${emsButtonsHtml}</div>
                 </div>
             `;
         }).join('');
 
-        // データの描画が終わったら、ローディングを消して各要素を表示する
         document.getElementById('loading-screen').style.display = 'none';
         document.getElementById('stats-section').style.display = 'grid';
         document.getElementById('system-controls').style.display = 'block';
@@ -328,7 +405,18 @@
 
         scheduleData[dayIndex].riders[memberId] = !scheduleData[dayIndex].riders[memberId];
         scheduleData[dayIndex].isManual = true;
-        
+        dbRef.set(scheduleData);
+    }
+
+    function changeKeibo(dayIndex, selectedMemberId) {
+        if (!checkPermission(scheduleData[dayIndex].dateTimestamp)) {
+            // パスワード入力キャンセル時は画面表示を元に戻す
+            recalculateAndRender();
+            return;
+        }
+
+        scheduleData[dayIndex].keiboRider = selectedMemberId;
+        scheduleData[dayIndex].isManual = true; // 警防隊の変更も手動扱いにする
         dbRef.set(scheduleData);
     }
 
@@ -336,6 +424,8 @@
         if (!checkPermission(scheduleData[dayIndex].dateTimestamp)) return;
 
         scheduleData[dayIndex].isManual = false;
+        // 戻す時は警防隊も空欄にリセット
+        scheduleData[dayIndex].keiboRider = "";
         dbRef.set(scheduleData);
     }
 
