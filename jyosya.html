@@ -165,7 +165,9 @@
         { id: 'niwa', name: '丹羽', tieBreaker: 3 }
     ];
 
+    // 警防隊メンバー（山田を西林の上に追加）
     const KEIBO_MEMBERS = [
+        { id: 'yamada', name: '山田' },
         { id: 'nishibayashi', name: '西林' },
         { id: 'ozaki', name: '尾崎' },
         { id: 'suzuki', name: '鈴木' }
@@ -186,7 +188,6 @@
             
             if (data) {
                 scheduleData = data;
-                // 既存データに警防隊枠(keiboRider)が無い場合のための補完
                 scheduleData.forEach(day => {
                     if (day.keiboRider === undefined) day.keiboRider = "";
                 });
@@ -236,8 +237,12 @@
         let finalCountsEms = { fujimori: 0, nakazaki: 0, uda: 0, niwa: 0 };
         let currentCountsEms = { fujimori: 0, nakazaki: 0, uda: 0, niwa: 0 };
         
-        let finalCountsKeibo = { nishibayashi: 0, ozaki: 0, suzuki: 0 };
-        let currentCountsKeibo = { nishibayashi: 0, ozaki: 0, suzuki: 0 };
+        let finalCountsKeibo = {};
+        let currentCountsKeibo = {};
+        KEIBO_MEMBERS.forEach(m => {
+            finalCountsKeibo[m.id] = 0;
+            currentCountsKeibo[m.id] = 0;
+        });
         
         const nowForCount = new Date();
         nowForCount.setHours(23, 59, 59, 999);
@@ -249,7 +254,6 @@
         scheduleData.forEach((day) => {
             const isPastDay = day.dateTimestamp < todayTimeCalc;
 
-            // 救急隊の自動計算
             if (!day.isManual && !isPastDay) {
                 let candidates = [...MEMBERS].sort((a, b) => {
                     if (finalCountsEms[b.id] !== finalCountsEms[a.id]) {
@@ -261,7 +265,6 @@
                 MEMBERS.forEach(m => { day.riders[m.id] = (m.id !== memberToOff); });
             }
 
-            // 救急隊のカウント
             MEMBERS.forEach(m => {
                 if (day.riders[m.id]) {
                     finalCountsEms[m.id]++;
@@ -271,7 +274,6 @@
                 }
             });
 
-            // 警防隊のカウント
             if (day.keiboRider && finalCountsKeibo[day.keiboRider] !== undefined) {
                 finalCountsKeibo[day.keiboRider]++;
                 if (day.dateTimestamp <= nowForCount.getTime()) {
@@ -284,7 +286,6 @@
     }
 
     function renderUI(currentCountsEms, finalCountsEms, currentCountsKeibo, finalCountsKeibo) {
-        // 救急隊の集計描画
         document.getElementById('current-totals-ems').innerHTML = MEMBERS.map(m => `
             <div class="total-item current-stat"><span>${m.name}</span>${currentCountsEms[m.id]}</div>
         `).join('');
@@ -293,7 +294,6 @@
             <div class="total-item"><span>${m.name}</span>${finalCountsEms[m.id]}</div>
         `).join('');
 
-        // 警防隊の集計描画
         document.getElementById('current-totals-keibo').innerHTML = KEIBO_MEMBERS.map(m => `
             <div class="total-item current-stat"><span>${m.name}</span>${currentCountsKeibo[m.id]}</div>
         `).join('');
@@ -336,7 +336,6 @@
                 </button>
             `).join('');
 
-            // 警防隊のプルダウン生成
             const keiboOptionsHtml = `<option value="">--空欄(乗車なし)--</option>` + KEIBO_MEMBERS.map(m => `
                 <option value="${m.id}" ${day.keiboRider === m.id ? 'selected' : ''}>${m.name}</option>
             `).join('');
@@ -410,13 +409,12 @@
 
     function changeKeibo(dayIndex, selectedMemberId) {
         if (!checkPermission(scheduleData[dayIndex].dateTimestamp)) {
-            // パスワード入力キャンセル時は画面表示を元に戻す
             recalculateAndRender();
             return;
         }
 
         scheduleData[dayIndex].keiboRider = selectedMemberId;
-        scheduleData[dayIndex].isManual = true; // 警防隊の変更も手動扱いにする
+        scheduleData[dayIndex].isManual = true;
         dbRef.set(scheduleData);
     }
 
@@ -424,7 +422,6 @@
         if (!checkPermission(scheduleData[dayIndex].dateTimestamp)) return;
 
         scheduleData[dayIndex].isManual = false;
-        // 戻す時は警防隊も空欄にリセット
         scheduleData[dayIndex].keiboRider = "";
         dbRef.set(scheduleData);
     }
